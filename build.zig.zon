@@ -1,0 +1,21 @@
+.{
+    .name = "sipimgv",
+
+    .version = "0.0.0",
+
+    .dependencies = .{
+        .@"raylib-zig" = .{
+            .url = "https://github.com/Not-Nik/raylib-zig/archive/devel.tar.gz",
+            .hash = "122062d2421175ba6bf89382c86621270e4883f1074ee4cc09da282e231bdef57328",
+        },
+        .zlap = .{
+            .url = "https://github.com/e0328eric/zlap/archive/refs/tags/v0.4.0.tar.gz",
+            .hash = "12203f3fd3172233e15558354b4ed502503780ff2e9669a880b04a8817b26b5d4f09",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

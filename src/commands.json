@@ -1,0 +1,16 @@
+{
+  "name": "siv",
+  "desc": "Simple Image Viewer",
+
+  "args": [
+    {
+      "desc": "filename to print",
+      "meta": "FILENAME",
+      "type": "string",
+      "default": null
+    }
+  ],
+  "flags": [],
+
+  "subcmds": []
+}
