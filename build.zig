@@ -14,6 +14,7 @@ pub fn build(b: *std.Build) void {
     const raylib = raylib_dep.module("raylib");
     const raygui = raylib_dep.module("raygui");
     const raylib_artifact = raylib_dep.artifact("raylib");
+    raylib_artifact.defineCMacro("SUPPORT_FILEFORMAT_JPG", null);
 
     const exe = b.addExecutable(.{
         .name = "siv",
