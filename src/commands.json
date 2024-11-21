@@ -5,8 +5,8 @@
   "args": [
     {
       "desc": "filename to print",
-      "meta": "FILENAME",
-      "type": "string",
+      "meta": "FILENAMES",
+      "type": "strings",
       "default": null
     }
   ],
