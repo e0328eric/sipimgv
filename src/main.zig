@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const rl = @import("raylib");
 const fs = std.fs;
 const math = std.math;
@@ -15,7 +16,7 @@ const MAX_SCREEN_WIDTH = 2400;
 const MAX_IMAGE_HEIGHT = 1350;
 const PANE_HEIGHT = 40;
 const MAX_SCREEN_HEIGHT = MAX_IMAGE_HEIGHT + PANE_HEIGHT;
-const SCALE_RATIO = 0.4;
+const SCALE_RATIO: f32 = 0.4;
 
 const WebpImgMagic = packed struct {
     magic1: u32,
@@ -30,6 +31,16 @@ const Image = struct {
 };
 
 pub fn main() !void {
+    // change the console encoding into utf-8
+    // One can find the magic number in here
+    // https://learn.microsoft.com/en-us/windows/win32/intl/code-page-identifiers
+    if (builtin.os.tag == .windows) {
+        if (std.os.windows.kernel32.SetConsoleOutputCP(65001) == 0) {
+            std.debug.print("ERROR: cannot set the codepoint into utf-8\n", .{});
+            return error.FailedToSetUTF8Codepoint;
+        }
+    }
+
     const allocator = std.heap.c_allocator;
 
     const commands = @embedFile("./commands.json");
@@ -65,6 +76,9 @@ pub fn main() !void {
     defer rl.closeWindow();
     rl.setTargetFPS(60);
 
+    const font = rl.loadFont("./fonts/NotoSansKR-Regular.ttf");
+    defer rl.unloadFont(font);
+
     const images = try getImagesList(allocator, filenames);
     defer {
         for (images.items) |img| {
@@ -86,8 +100,7 @@ pub fn main() !void {
             else => {},
         }
 
-        const scale_ratio =
-            @as(f32, @floatFromInt(@intFromBool(allow_scale))) * SCALE_RATIO + 1.0;
+        const scale_ratio: f32 = 1.0 + if (allow_scale) SCALE_RATIO else 0.0;
         const img_width = @as(f32, @floatFromInt(image.width)) * scale_ratio;
         const img_height = @as(f32, @floatFromInt(image.height)) * scale_ratio;
 
@@ -114,11 +127,15 @@ pub fn main() !void {
                 rl.Color.black,
             );
 
-            rl.drawText(
+            rl.drawTextEx(
+                font,
                 image.filename,
-                10,
-                @as(i32, @intFromFloat(img_height)) + (PANE_HEIGHT >> 2),
+                .{
+                    .x = 10.0,
+                    .y = img_height + @as(f32, @floatFromInt(PANE_HEIGHT >> 2)),
+                },
                 PANE_HEIGHT >> 1,
+                0.0,
                 rl.Color.white,
             );
         }
@@ -136,6 +153,22 @@ fn isWebpImage(filename: []const u8) !bool {
 
     return mem.nativeToLittle(u32, webp_magic_data.magic1) == 0x46464952 and
         mem.nativeToLittle(u64, webp_magic_data.magic2) == 0x2038505650424557;
+}
+
+fn getImageFromOther(allocator: Allocator, filename: []const u8) !rl.Image {
+    var img_file = try fs.cwd().openFile(filename, .{});
+    defer img_file.close();
+
+    const content = try img_file.readToEndAlloc(allocator, math.maxInt(usize));
+    defer allocator.free(content);
+
+    const extension = blk: {
+        const tmp = fs.path.extension(filename);
+        break :blk try allocator.dupeZ(u8, tmp);
+    };
+    defer allocator.free(extension);
+
+    return rl.loadImageFromMemory(extension, content);
 }
 
 fn getImageFromWebp(allocator: Allocator, filename: []const u8) !rl.Image {
@@ -183,11 +216,11 @@ fn getImagesList(
         var img = if (try isWebpImage(filename))
             try getImageFromWebp(allocator, filename)
         else
-            rl.loadImage(filename);
+            try getImageFromOther(allocator, filename);
         defer rl.unloadImage(img);
 
-        const img_width = @min(@divFloor(MAX_SCREEN_WIDTH, 10) * 9, img.width);
-        const img_height = @min(@divFloor(MAX_IMAGE_HEIGHT, 10) * 9, img.height);
+        const img_width = @min(MAX_SCREEN_WIDTH, img.width);
+        const img_height = @min(MAX_IMAGE_HEIGHT, img.height);
         rl.imageResize(&img, @intCast(img_width), @intCast(img_height));
 
         const texture = rl.loadTextureFromImage(img);
