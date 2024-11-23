@@ -24,7 +24,7 @@ const WebpImgMagic = packed struct {
     magic2: u64,
 };
 const Image = struct {
-    texture: rl.Texture2D,
+    texture: ?rl.Texture2D,
     filename: [:0]const u8,
     width: usize,
     height: usize,
@@ -76,29 +76,57 @@ pub fn main() !void {
     defer rl.closeWindow();
     rl.setTargetFPS(60);
 
-    const font = rl.loadFont("./fonts/NotoSansKR-Regular.ttf");
-    defer rl.unloadFont(font);
-
-    const images = try getImagesList(allocator, filenames);
+    var images = try ArrayList(Image).initCapacity(allocator, filenames.items.len);
     defer {
         for (images.items) |img| {
-            rl.unloadTexture(img.texture);
+            if (img.texture) |texture| {
+                rl.unloadTexture(texture);
+            }
         }
         images.deinit();
     }
+    for (0..filenames.items.len) |idx| {
+        try images.append(.{
+            .texture = null,
+            .filename = filenames.items[idx],
+            .width = 0,
+            .height = 0,
+        });
+    }
+
+    // preallocate 20 images into VRAM
+    try getImagesList(allocator, &images, filenames, 0, 10);
 
     var idx: usize = 0;
     var allow_scale: bool = false;
+    var init_direction: enum(u1) {
+        left,
+        right,
+    } = .right;
     while (!rl.windowShouldClose()) {
-        const image = images.items[idx];
-
         switch (rl.getKeyPressed()) {
             .key_q => break,
-            .key_a, .key_left => idx = if (idx == 0) images.items.len -| 1 else idx - 1,
-            .key_d, .key_right => idx = if (idx + 1 >= images.items.len) 0 else idx + 1,
+            .key_a, .key_left => {
+                idx = if (idx == 0) images.items.len -| 1 else idx - 1;
+                init_direction = .left;
+            },
+            .key_d, .key_right => {
+                idx = if (idx + 1 >= images.items.len) 0 else idx + 1;
+                init_direction = .right;
+            },
             .key_e => allow_scale = !allow_scale,
             else => {},
         }
+
+        if (images.items[idx].texture == null) {
+            switch (init_direction) {
+                .left => try getImagesList(allocator, &images, filenames, idx -| 10, idx),
+                .right => try getImagesList(allocator, &images, filenames, idx, idx + 10),
+            }
+        }
+
+        const image = images.items[idx];
+        const img_texture = image.texture.?; // Now it is initialized
 
         const scale_ratio: f32 = 1.0 + if (allow_scale) SCALE_RATIO else 0.0;
         const img_width = @as(f32, @floatFromInt(image.width)) * scale_ratio;
@@ -115,7 +143,7 @@ pub fn main() !void {
 
             rl.clearBackground(rl.Color.black);
             rl.drawTextureEx(
-                image.texture,
+                img_texture,
                 .{ .x = 0.0, .y = 0.0 },
                 0.0,
                 scale_ratio,
@@ -127,15 +155,11 @@ pub fn main() !void {
                 rl.Color.black,
             );
 
-            rl.drawTextEx(
-                font,
+            rl.drawText(
                 image.filename,
-                .{
-                    .x = 10.0,
-                    .y = img_height + @as(f32, @floatFromInt(PANE_HEIGHT >> 2)),
-                },
+                10,
+                @as(i32, @intFromFloat(img_height)) + (PANE_HEIGHT >> 2),
                 PANE_HEIGHT >> 1,
-                0.0,
                 rl.Color.white,
             );
         }
@@ -202,37 +226,39 @@ fn getImageFromWebp(allocator: Allocator, filename: []const u8) !rl.Image {
 
 fn getImagesList(
     allocator: Allocator,
+    images: *ArrayList(Image),
     filenames: ArrayList([:0]const u8),
-) !ArrayList(Image) {
-    var images = try ArrayList(Image).initCapacity(allocator, filenames.items.len);
+    from: usize,
+    step: usize,
+) !void {
+    std.debug.assert(filenames.items.len == images.items.len);
+
+    const end = @min(filenames.items.len, from + step);
     errdefer {
-        for (images.items) |img| {
-            rl.unloadTexture(img.texture);
+        for (from..end) |idx| {
+            rl.unloadTexture(images.items[idx].texture.?);
         }
-        images.deinit();
     }
 
-    for (filenames.items) |filename| {
-        var img = if (try isWebpImage(filename))
+    for (from..end) |idx| {
+        if (images.items[idx].texture != null) continue;
+
+        const filename = filenames.items[idx];
+        var img_raylib = if (try isWebpImage(filename))
             try getImageFromWebp(allocator, filename)
         else
             try getImageFromOther(allocator, filename);
-        defer rl.unloadImage(img);
+        defer rl.unloadImage(img_raylib);
 
-        const img_width = @min(MAX_SCREEN_WIDTH, img.width);
-        const img_height = @min(MAX_IMAGE_HEIGHT, img.height);
-        rl.imageResize(&img, @intCast(img_width), @intCast(img_height));
+        const img_width = @min(MAX_SCREEN_WIDTH, img_raylib.width);
+        const img_height = @min(MAX_IMAGE_HEIGHT, img_raylib.height);
+        rl.imageResize(&img_raylib, @intCast(img_width), @intCast(img_height));
 
-        const texture = rl.loadTextureFromImage(img);
+        const texture = rl.loadTextureFromImage(img_raylib);
         errdefer rl.unloadTexture(texture);
 
-        try images.append(.{
-            .texture = texture,
-            .filename = filename,
-            .width = @intCast(img_width),
-            .height = @intCast(img_height),
-        });
+        images.items[idx].texture = texture;
+        images.items[idx].width = @intCast(img_width);
+        images.items[idx].height = @intCast(img_height);
     }
-
-    return images;
 }
