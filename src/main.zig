@@ -16,7 +16,6 @@ const MAX_SCREEN_WIDTH = 2400;
 const MAX_IMAGE_HEIGHT = 1350;
 const PANE_HEIGHT = 40;
 const MAX_SCREEN_HEIGHT = MAX_IMAGE_HEIGHT + PANE_HEIGHT;
-const SCALE_RATIO: f32 = 0.4;
 
 const WebpImgMagic = packed struct {
     magic1: u32,
@@ -24,7 +23,7 @@ const WebpImgMagic = packed struct {
     magic2: u64,
 };
 const Image = struct {
-    texture: rl.Texture2D,
+    texture: ?rl.Texture2D,
     filename: [:0]const u8,
     width: usize,
     height: usize,
@@ -51,6 +50,14 @@ pub fn main() !void {
         std.debug.print("{s}\n", .{zlap.help_msg});
         return;
     }
+    const mag_ratio_flag = zlap.main_flags.get("ratio") orelse return;
+    const mag_ratio_raw = mag_ratio_flag.value.number;
+    if (mag_ratio_raw <= 0) {
+        std.debug.print("--ratio value must be positive\n", .{});
+        return error.InvalidRatio;
+    }
+    const mag_ratio = @as(f32, @floatFromInt(mag_ratio_raw)) / 100.0;
+    std.debug.print("{}\n", .{mag_ratio});
 
     var filenames = try ArrayList([:0]const u8).initCapacity(allocator, 10);
     defer {
@@ -79,28 +86,52 @@ pub fn main() !void {
     const font = rl.loadFont("./fonts/NotoSansKR-Regular.ttf");
     defer rl.unloadFont(font);
 
-    const images = try getImagesList(allocator, filenames);
+    var images = try ArrayList(Image).initCapacity(allocator, filenames.items.len);
+    for (filenames.items) |filename| {
+        try images.append(.{
+            .texture = null,
+            .filename = filename,
+            .width = 0,
+            .height = 0,
+        });
+    }
     defer {
         for (images.items) |img| {
-            rl.unloadTexture(img.texture);
+            if (img.texture) |texture| {
+                rl.unloadTexture(texture);
+            }
         }
         images.deinit();
     }
+    try getImagesList(allocator, &images, filenames, 0, 10);
 
     var idx: usize = 0;
     var allow_scale: bool = false;
+    var init_direction: enum { left, right } = .right;
     while (!rl.windowShouldClose()) {
-        const image = images.items[idx];
-
         switch (rl.getKeyPressed()) {
             .key_q => break,
-            .key_a, .key_left => idx = if (idx == 0) images.items.len -| 1 else idx - 1,
-            .key_d, .key_right => idx = if (idx + 1 >= images.items.len) 0 else idx + 1,
+            .key_a, .key_left => {
+                idx = if (idx == 0) images.items.len -| 1 else idx - 1;
+                init_direction = .left;
+            },
+            .key_d, .key_right => {
+                idx = if (idx + 1 >= images.items.len) 0 else idx + 1;
+                init_direction = .right;
+            },
             .key_e => allow_scale = !allow_scale,
             else => {},
         }
+        if (images.items[idx].texture == null) {
+            switch (init_direction) {
+                .left => try getImagesList(allocator, &images, filenames, idx, idx + 10),
+                .right => try getImagesList(allocator, &images, filenames, idx -| 10, idx),
+            }
+        }
+        const image = images.items[idx];
+        const image_texture = image.texture.?;
 
-        const scale_ratio: f32 = 1.0 + if (allow_scale) SCALE_RATIO else 0.0;
+        const scale_ratio: f32 = if (allow_scale) mag_ratio else 1.0;
         const img_width = @as(f32, @floatFromInt(image.width)) * scale_ratio;
         const img_height = @as(f32, @floatFromInt(image.height)) * scale_ratio;
 
@@ -115,7 +146,7 @@ pub fn main() !void {
 
             rl.clearBackground(rl.Color.black);
             rl.drawTextureEx(
-                image.texture,
+                image_texture,
                 .{ .x = 0.0, .y = 0.0 },
                 0.0,
                 scale_ratio,
@@ -202,37 +233,47 @@ fn getImageFromWebp(allocator: Allocator, filename: []const u8) !rl.Image {
 
 fn getImagesList(
     allocator: Allocator,
+    images: *ArrayList(Image),
     filenames: ArrayList([:0]const u8),
-) !ArrayList(Image) {
-    var images = try ArrayList(Image).initCapacity(allocator, filenames.items.len);
+    from: usize,
+    step: usize,
+) !void {
+    std.debug.assert(filenames.items.len == images.items.len);
+
+    const end = @min(filenames.items.len, from + step);
     errdefer {
-        for (images.items) |img| {
-            rl.unloadTexture(img.texture);
+        for (from..end) |idx| {
+            if (images.items[idx].texture) |texture| {
+                rl.unloadTexture(texture);
+            }
+            images.items[idx].texture = null;
         }
         images.deinit();
     }
 
-    for (filenames.items) |filename| {
-        var img = if (try isWebpImage(filename))
+    for (from..end) |idx| {
+        if (images.items[idx].texture != null) continue;
+
+        const filename = filenames.items[idx];
+        var img_raylib = if (try isWebpImage(filename))
             try getImageFromWebp(allocator, filename)
         else
             try getImageFromOther(allocator, filename);
-        defer rl.unloadImage(img);
+        defer rl.unloadImage(img_raylib);
 
-        const img_width = @min(MAX_SCREEN_WIDTH, img.width);
-        const img_height = @min(MAX_IMAGE_HEIGHT, img.height);
-        rl.imageResize(&img, @intCast(img_width), @intCast(img_height));
+        var img_height = @min(MAX_IMAGE_HEIGHT, img_raylib.height);
+        var img_width = @divTrunc(img_raylib.width * img_height, img_raylib.height);
+        if (img_width > MAX_SCREEN_WIDTH) {
+            img_height = @divTrunc(img_height * img_width, MAX_SCREEN_WIDTH);
+            img_width = MAX_SCREEN_WIDTH;
+        }
+        rl.imageResize(&img_raylib, @intCast(img_width), @intCast(img_height));
 
-        const texture = rl.loadTextureFromImage(img);
+        const texture = rl.loadTextureFromImage(img_raylib);
         errdefer rl.unloadTexture(texture);
 
-        try images.append(.{
-            .texture = texture,
-            .filename = filename,
-            .width = @intCast(img_width),
-            .height = @intCast(img_height),
-        });
+        images.items[idx].texture = texture;
+        images.items[idx].width = @intCast(img_width);
+        images.items[idx].height = @intCast(img_height);
     }
-
-    return images;
 }

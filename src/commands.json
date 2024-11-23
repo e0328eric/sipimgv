@@ -10,7 +10,15 @@
       "default": null
     }
   ],
-  "flags": [],
+  "flags": [
+      {
+          "long": "ratio",
+          "short": "R",
+          "desc": "set magnitude ratio (default: 130%)",
+          "type": "number",
+          "default": "130"
+      }
+  ],
 
   "subcmds": []
 }
