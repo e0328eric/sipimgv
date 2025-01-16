@@ -5,16 +5,16 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const raylib_dep = b.dependency("raylib-zig", .{
+    const raylib_lib = b.dependency("raylib", .{});
+    b.addTranslateC(.{
+        .root_source_file = .{ .dependency = .{
+            .dependency = raylib_lib,
+            .sub_path = ".",
+        } },
         .target = target,
         .optimize = optimize,
-    });
+    }).defineCMacro("SUPPORT_FILEFORMAT_JPG", "");
     const zlap = b.dependency("zlap", .{}).module("zlap");
-
-    const raylib = raylib_dep.module("raylib");
-    const raygui = raylib_dep.module("raygui");
-    const raylib_artifact = raylib_dep.artifact("raylib");
-    raylib_artifact.defineCMacro("SUPPORT_FILEFORMAT_JPG", null);
 
     const exe = b.addExecutable(.{
         .name = "siv",
@@ -24,9 +24,7 @@ pub fn build(b: *std.Build) void {
     });
     exe.linkLibC();
     exe.root_module.addImport("zlap", zlap);
-    exe.root_module.addImport("raylib", raylib);
-    exe.root_module.addImport("raygui", raygui);
-    exe.linkLibrary(raylib_artifact);
+    exe.linkLibrary(raylib_lib.artifact("raylib"));
     if (target.query.os_tag == null or target.query.os_tag == .windows) {
         exe.addIncludePath(b.path("./vcpkg_installed/x64-mingw-static/include"));
         exe.addLibraryPath(b.path("./vcpkg_installed/x64-mingw-static/lib"));

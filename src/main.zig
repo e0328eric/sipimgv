@@ -1,9 +1,13 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const rl = @import("raylib");
 const fs = std.fs;
 const math = std.math;
 const mem = std.mem;
+
+const rl = @cImport({
+    @cInclude("raylib.h");
+    @cInclude("raymath.h");
+});
 
 const c = @cImport({
     @cInclude("webp/decode.h");
@@ -79,12 +83,12 @@ pub fn main() !void {
         try filenames.append(filename);
     }
 
-    rl.initWindow(MAX_SCREEN_WIDTH, MAX_SCREEN_HEIGHT, "Simple Image Viewer");
-    defer rl.closeWindow();
-    rl.setTargetFPS(60);
+    rl.InitWindow(MAX_SCREEN_WIDTH, MAX_SCREEN_HEIGHT, "Simple Image Viewer");
+    defer rl.CloseWindow();
+    rl.SetTargetFPS(60);
 
-    const font = rl.loadFont("./fonts/NotoSansKR-Regular.ttf");
-    defer rl.unloadFont(font);
+    const font = rl.LoadFont("./fonts/NotoSansKR-Regular.ttf");
+    defer rl.UnloadFont(font);
 
     var images = try ArrayList(Image).initCapacity(allocator, filenames.items.len);
     for (filenames.items) |filename| {
@@ -98,7 +102,7 @@ pub fn main() !void {
     defer {
         for (images.items) |img| {
             if (img.texture) |texture| {
-                rl.unloadTexture(texture);
+                rl.UnloadTexture(texture);
             }
         }
         images.deinit();
@@ -108,18 +112,18 @@ pub fn main() !void {
     var idx: usize = 0;
     var allow_scale: bool = false;
     var init_direction: enum { left, right } = .right;
-    while (!rl.windowShouldClose()) {
-        switch (rl.getKeyPressed()) {
-            .key_q => break,
-            .key_a, .key_left => {
+    while (!rl.WindowShouldClose()) {
+        switch (rl.GetKeyPressed()) {
+            rl.KEY_Q => break,
+            rl.KEY_A, rl.KEY_LEFT => {
                 idx = if (idx == 0) images.items.len -| 1 else idx - 1;
                 init_direction = .left;
             },
-            .key_d, .key_right => {
+            rl.KEY_D, rl.KEY_RIGHT => {
                 idx = if (idx + 1 >= images.items.len) 0 else idx + 1;
                 init_direction = .right;
             },
-            .key_e => allow_scale = !allow_scale,
+            rl.KEY_E => allow_scale = !allow_scale,
             else => {},
         }
         if (images.items[idx].texture == null) {
@@ -135,30 +139,30 @@ pub fn main() !void {
         const img_width = @as(f32, @floatFromInt(image.width)) * scale_ratio;
         const img_height = @as(f32, @floatFromInt(image.height)) * scale_ratio;
 
-        rl.setWindowSize(
+        rl.SetWindowSize(
             @intFromFloat(img_width),
             @as(i32, @intFromFloat(img_height)) + PANE_HEIGHT,
         );
 
         {
-            rl.beginDrawing();
-            defer rl.endDrawing();
+            rl.BeginDrawing();
+            defer rl.EndDrawing();
 
-            rl.clearBackground(rl.Color.black);
-            rl.drawTextureEx(
+            rl.ClearBackground(rl.BLACK);
+            rl.DrawTextureEx(
                 image_texture,
                 .{ .x = 0.0, .y = 0.0 },
                 0.0,
                 scale_ratio,
-                rl.Color.white,
+                rl.WHITE,
             );
-            rl.drawRectangleV(
+            rl.DrawRectangleV(
                 .{ .x = 0.0, .y = img_height },
                 .{ .x = img_width, .y = @floatFromInt(PANE_HEIGHT) },
-                rl.Color.black,
+                rl.BLACK,
             );
 
-            rl.drawTextEx(
+            rl.DrawTextEx(
                 font,
                 image.filename,
                 .{
@@ -167,7 +171,7 @@ pub fn main() !void {
                 },
                 PANE_HEIGHT >> 1,
                 0.0,
-                rl.Color.white,
+                rl.WHITE,
             );
         }
     }
@@ -199,7 +203,7 @@ fn getImageFromOther(allocator: Allocator, filename: []const u8) !rl.Image {
     };
     defer allocator.free(extension);
 
-    return rl.loadImageFromMemory(extension, content);
+    return rl.LoadImageFromMemory(extension, content.ptr, @intCast(content.len));
 }
 
 fn getImageFromWebp(allocator: Allocator, filename: []const u8) !rl.Image {
@@ -219,8 +223,8 @@ fn getImageFromWebp(allocator: Allocator, filename: []const u8) !rl.Image {
     );
     defer c.WebPFree(raw_rgba_data);
 
-    const output_img = rl.genImageColor(@intCast(width), @intCast(height), rl.Color.blank);
-    errdefer rl.unloadImage(output_img);
+    const output_img = rl.GenImageColor(@intCast(width), @intCast(height), rl.BLANK);
+    errdefer rl.UnloadImage(output_img);
 
     @memcpy(
         @as([*]u8, @ptrCast(@alignCast(output_img.data))),
@@ -244,7 +248,7 @@ fn getImagesList(
     errdefer {
         for (from..end) |idx| {
             if (images.items[idx].texture) |texture| {
-                rl.unloadTexture(texture);
+                rl.UnloadTexture(texture);
             }
             images.items[idx].texture = null;
         }
@@ -259,7 +263,7 @@ fn getImagesList(
             try getImageFromWebp(allocator, filename)
         else
             try getImageFromOther(allocator, filename);
-        defer rl.unloadImage(img_raylib);
+        defer rl.UnloadImage(img_raylib);
 
         var img_height = @min(MAX_IMAGE_HEIGHT, img_raylib.height);
         var img_width = @divTrunc(img_raylib.width * img_height, img_raylib.height);
@@ -267,10 +271,10 @@ fn getImagesList(
             img_height = @divTrunc(img_height * img_width, MAX_SCREEN_WIDTH);
             img_width = MAX_SCREEN_WIDTH;
         }
-        rl.imageResize(&img_raylib, @intCast(img_width), @intCast(img_height));
+        rl.ImageResize(&img_raylib, @intCast(img_width), @intCast(img_height));
 
-        const texture = rl.loadTextureFromImage(img_raylib);
-        errdefer rl.unloadTexture(texture);
+        const texture = rl.LoadTextureFromImage(img_raylib);
+        errdefer rl.UnloadTexture(texture);
 
         images.items[idx].texture = texture;
         images.items[idx].width = @intCast(img_width);
